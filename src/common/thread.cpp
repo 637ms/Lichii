@@ -5,6 +5,7 @@
 // SPDX-FileCopyrightText: 2014 Citra Emulator Project
 // SPDX-License-Identifier: GPL-2.0-or-later
 
+#include <algorithm>
 #include <chrono>
 #include <string>
 #include <thread>
@@ -560,8 +561,11 @@ void PinCurrentThread(PinnedRole role) {
     if (setting != nullptr && setting[0] == '0') {
         return;
     }
-    // Physical cores of processor group 0, as masks of their logical processors.
+    // Physical cores of processor group 0, as masks of their logical processors, fastest class
+    // first. Hybrid CPUs (Intel P/E cores) report a higher EfficiencyClass for performance cores;
+    // in list order the GPU threads could land on an E-core. Non-hybrid CPUs keep list order.
     static const std::vector<KAFFINITY> cores = [] {
+        std::vector<std::pair<BYTE, KAFFINITY>> found;
         std::vector<KAFFINITY> result;
         DWORD length = 0;
         GetLogicalProcessorInformationEx(RelationProcessorCore, nullptr, &length);
@@ -574,9 +578,22 @@ void PinCurrentThread(PinnedRole role) {
             auto* entry =
                 reinterpret_cast<SYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX*>(buffer.data() + offset);
             if (entry->Processor.GroupCount > 0 && entry->Processor.GroupMask[0].Group == 0) {
-                result.push_back(entry->Processor.GroupMask[0].Mask);
+                // EfficiencyClass is the byte after Flags (older MinGW headers call it Reserved).
+                const BYTE efficiency_class =
+                    reinterpret_cast<const BYTE*>(&entry->Processor.Flags)[1];
+                found.emplace_back(efficiency_class, entry->Processor.GroupMask[0].Mask);
             }
             offset += entry->Size;
+        }
+        std::stable_sort(found.begin(), found.end(),
+                         [](const auto& a, const auto& b) { return a.first > b.first; });
+        for (const auto& [efficiency_class, mask] : found) {
+            result.push_back(mask);
+        }
+        if (!found.empty()) {
+            LOG_INFO(Common, "Thread pinning: {} cores, fastest class {}, GPU front {:#x}, back {:#x}",
+                     found.size(), found.front().first,
+                     found.size() > 1 ? found[1].second : 0, found.size() > 2 ? found[2].second : 0);
         }
         return result;
     }();

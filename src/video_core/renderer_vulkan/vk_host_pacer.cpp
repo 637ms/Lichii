@@ -12,7 +12,9 @@
 #ifdef _WIN32
 #include <windows.h>
 #include <dwmapi.h>
-#pragma comment(lib, "dwmapi.lib")
+#ifdef _MSC_VER
+#pragma comment(lib, "dwmapi.lib") // MinGW links dwmapi from CMake
+#endif
 #endif
 
 namespace Vulkan {

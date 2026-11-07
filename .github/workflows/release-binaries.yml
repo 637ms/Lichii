@@ -91,6 +91,18 @@ jobs:
       - name: Check out source
         uses: actions/checkout@v5
 
+      # Laptop build patches (.laptop/*.patch), applied to the index so line endings don't matter.
+      - name: Apply laptop patches
+        shell: bash
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          for patch in .laptop/*.patch; do
+            echo "Applying $patch"
+            git apply --cached --whitespace=nowarn "$patch"
+          done
+          git checkout -- src
+
       - name: Install Linux dependencies
         if: startsWith(matrix.platform, 'linux')
         shell: bash
